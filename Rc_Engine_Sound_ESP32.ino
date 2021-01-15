@@ -9,7 +9,7 @@
    Parts of automatic transmision code from Wombii's fork: https://github.com/Wombii/Rc_Engine_Sound_ESP32
 */
 
-const float codeVersion = 6.2; // Software revision.
+const float codeVersion = 6.21; // Software revision.
 
 //
 // =======================================================================================================
@@ -91,23 +91,24 @@ const uint8_t PWM_PINS[PWM_CHANNELS_NUM] = { 13, 12, 14, 27, 35, 34 }; // Input 
 #ifdef PROTOTYPE_36 // switching headlight pin depending on the board variant (do not uncomment it, or it will cause boot issues!)
 #define HEADLIGHT_PIN 0 // White headllights connected to pin D0, which only exists on the 36 pin ESP32 board (causes boot issues, if used!)
 #else
-#define HEADLIGHT_PIN 3 // 3 = RX0 pin, (1 = TX0 is not usable) white headllights
+#define HEADLIGHT_PIN 18 // 3 = RX0 pin, (1 = TX0 is not usable) white headllights
 #endif
 
-#define TAILLIGHT_PIN 15 // Red tail- & brake-lights (combined)
-#define INDICATOR_LEFT_PIN 2 // Orange left indicator (turn signal) light
-#define INDICATOR_RIGHT_PIN 4 // Orange right indicator (turn signal) light
-#define FOGLIGHT_PIN 16 // (16 = RX2) Fog lights
-#define REVERSING_LIGHT_PIN 17 // (TX2) White reversing light
-#define ROOFLIGHT_PIN 5 // Roof lights (high beam, if "define SEPARATE_FULL_BEAM")
-#define SIDELIGHT_PIN 18 // Side lights (connect roof ligthts here, if "define SEPARATE_FULL_BEAM")
-#define BEACON_LIGHT2_PIN 19 // Blue beacons light
-#define BEACON_LIGHT1_PIN 21 // Blue beacons light
-#define CABLIGHT_PIN 22 // Cabin lights
+#define TAILLIGHT_PIN 16 // Red tail- & brake-lights (combined)
+#define INDICATOR_LEFT_PIN 19 // Orange left indicator (turn signal) light
+#define INDICATOR_RIGHT_PIN 21 // Orange right indicator (turn signal) light
+#define FOGLIGHT_PIN 17 // (16 = RX2) Fog lights
+#define REVERSING_LIGHT_PIN 23 // (TX2) White reversing light
+#define ROOFLIGHT_PIN 1 // Roof lights
+#define SIDELIGHT_PIN 3 // Side lights
+#define HHEADLIGHT_PIN 5 // Blue beacons light
+#define DRLLIGHT_PIN 4 // Blue beacons light
+#define TRAINLIGHT_PIN 2 // Train lights
+#define CABLIGHT_PIN 21 // Cabin lights
 
-#define BRAKELIGHT_PIN 32 // Upper brake lights
+#define BRAKELIGHT_PIN 22 // Upper brake lights
 
-#define SHAKER_MOTOR_PIN 23 // Shaker motor (shaking truck while idling and engine start / stop)
+#define SHAKER_MOTOR_PIN 15 // Shaker motor (shaking truck while idling and engine start / stop)
 
 #define DAC1 25 // connect pin25 (do not change the pin) to a 10kOhm resistor
 #define DAC2 26 // connect pin26 (do not change the pin) to a 10kOhm resistor
@@ -125,9 +126,9 @@ statusLED fogLight(false);
 statusLED reversingLight(false);
 statusLED roofLight(false);
 statusLED sideLight(false);
-statusLED beaconLight1(false);
-statusLED beaconLight2(false);
-statusLED cabLight(false);
+statusLED drlLight(false);
+statusLED hheadLight(false);
+statusLED trainLight(false);
 statusLED brakeLight(false);
 statusLED shakerMotor(false);
 statusLED escOut(false);
@@ -137,10 +138,12 @@ statusLED escOut(false);
 rcTrigger functionR100u(200); // 200ms required!
 rcTrigger functionR100d(100);
 rcTrigger functionR75u(300); // 300ms required!
+rcTrigger functionR75uLong(350); // 300ms required!
 rcTrigger functionR75d(300); // 300ms required!
 rcTrigger functionL100l(100);
 rcTrigger functionL100r(100);
 rcTrigger functionL75l(300); // 300ms required!
+rcTrigger functionL75lLong(350); // 300ms required!
 rcTrigger functionL75r(300); // 300ms required!
 
 // Latching 2 position
@@ -221,6 +224,7 @@ boolean hazard;
 boolean left;
 boolean right;
 boolean unlock5thWheel;
+boolean train;
 
 // Sound
 volatile boolean engineOn = false;                       // Signal for engine on / off
@@ -292,6 +296,7 @@ uint16_t currentSpeed = 0;                               // 0 - 500 (current ESC
 
 // Lights
 int8_t lightsState = 0;                                  // for lights state machine
+int8_t lightsState2 = 0;                                 // for lights state machine
 volatile boolean lightsOn = false;                       // Lights on
 volatile boolean headLightsFlasherOn = false;            // Headlights flasher impulse (Lichthupe)
 volatile boolean headLightsHighBeamOn = false;           // Headlights high beam (Fernlicht)
@@ -852,13 +857,13 @@ void setup() {
   indicatorR.begin(INDICATOR_RIGHT_PIN, 4, 20000); // Timer 4, 20kHz
   fogLight.begin(FOGLIGHT_PIN, 5, 20000); // Timer 5, 20kHz
   reversingLight.begin(REVERSING_LIGHT_PIN, 6, 20000); // Timer 6, 20kHz
-  roofLight.begin(ROOFLIGHT_PIN, 7, 20000); // Timer 7, 20kHz
+  roofLight.begin(ROOFLIGHT_PIN, 7, 20000); // Timer 7, 20kHz00Hz
   sideLight.begin(SIDELIGHT_PIN, 8, 20000); // Timer 8, 20kHz
 
-  beaconLight1.begin(BEACON_LIGHT1_PIN, 9, 20000); // Timer 9, 20kHz
-  beaconLight2.begin(BEACON_LIGHT2_PIN, 10, 20000); // Timer 10, 20kHz
+  drlLight.begin(DRLLIGHT_PIN, 9, 20000); // Timer 9, 20kHz
+  hheadLight.begin(HHEADLIGHT_PIN, 10, 20000); // Timer 10, 20kHz
   brakeLight.begin(BRAKELIGHT_PIN, 11, 20000); // Timer 11, 20kHz
-  cabLight.begin(CABLIGHT_PIN, 12, 20000); // Timer 12, 20kHz
+  trainLight.begin(TRAINLIGHT_PIN, 12, 20000); // Timer 12, 20kHz
 
   shakerMotor.begin(SHAKER_MOTOR_PIN, 13, 20000); // Timer 13, 20kHz
 
@@ -1523,17 +1528,15 @@ uint8_t rearlightDimmedBrightness = 30;
 // Brake light sub function ---------------------------------
 void brakeLightsSub(int8_t brightness) {
   if (escIsBraking) {
-    tailLight.pwm(255 - crankingDim);  // Taillights (full brightness)
     brakeLight.pwm(255 - crankingDim); // Brakelight on
   }
   else {
-    tailLight.pwm(constrain(brightness - (crankingDim / 2), 0, 255)); // Taillights (reduced brightness)
     brakeLight.pwm(constrain(brightness - (crankingDim / 2), 0, 255)); // Brakelight (reduced brightness)
   }
 }
 
 // Headlights sub function ---------------------------------
-void headLightsSub(bool head, bool fog, bool roof) {
+void headLightsSub(bool tail, bool head, bool hhead) {
 
 #ifdef XENON_LIGHTS // Optional xenon ignition flash
   if (millis() - xenonMillis > 50) xenonIgnitionFlash = 0; else xenonIgnitionFlash = 170; // bulb is brighter for 50ms
@@ -1549,7 +1552,7 @@ void headLightsSub(bool head, bool fog, bool roof) {
     headLight.pwm(constrain(255 - crankingDim - 170 + xenonIgnitionFlash, 0, 255));
   }
   // Headlights (high beam bulb)
-  if (headLightsFlasherOn || (headLightsHighBeamOn && head)) roofLight.pwm(200 - crankingDim); else roofLight.off();
+  if (headLightsFlasherOn || (headLightsHighBeamOn && head)) hheadLight.pwm(255 - crankingDim); else hheadLight.off();
 
 #else // Bulbs wired as labeled on the board ----
   // Headlights
@@ -1558,16 +1561,23 @@ void headLightsSub(bool head, bool fog, bool roof) {
     xenonMillis = millis();
     headLightsHighBeamOn = false;
   }
+  else if (hhead){
+    headLight.on();
+  }
   else { //ON
-    headLight.pwm(constrain(255 - crankingDim - dipDim + xenonIgnitionFlash, 0, 255));
+    if (!headLightsFlasherOn) headLight.pwm(constrain(255 - crankingDim - dipDim + xenonIgnitionFlash, 0, 255)); else headLight.on();
   }
 
-  // Roof lights
-  if (!roof) roofLight.off(); else roofLight.pwm(130 - crankingDim);
 #endif // ----
 
-  // Fog lights
-  if (!fog) fogLight.off(); else fogLight.pwm(200 - crankingDim);
+  // Tail lights
+  if (!tail) tailLight.off(); else tailLight.pwm(255 - crankingDim);
+
+#ifdef DRL_LIGHTS
+  if (engineRunning && !head) drlLight.on();
+  else if (tail) drlLight.pwm(50 - crankingDim); 
+  else drlLight.off();
+#endif
 }
 
 // Main LED function --------------------------------------------------------------------------------------
@@ -1587,25 +1597,25 @@ void led() {
 
   // Beacons (blue light) ----
 #if not defined TRACKED_MODE  // Normal beacons mode 
-  if (blueLightTrigger) {
-    if (doubleFlashBlueLight) {
-      beaconLight1.flash(30, 80, 400, 2); // Simulate double flash lights
-      beaconLight2.flash(30, 80, 400, 2, 330); // Simulate double flash lights (with delay for first pass)
-    }
-    else {
-      beaconLight1.flash(30, 500, 0, 0); // Simulate rotating beacon lights with short flashes
-      beaconLight2.flash(30, 500, 0, 0, 100); // Simulate rotating beacon lights with short flashes
-    }
-  }
-  else {
-    beaconLight2.off();
-    beaconLight1.off();
-  }
+//  if (blueLightTrigger) {
+//    if (doubleFlashBlueLight) {
+//      beaconLight1.flash(30, 80, 400, 2); // Simulate double flash lights
+//      beaconLight2.flash(30, 80, 400, 2, 330); // Simulate double flash lights (with delay for first pass)
+//    }
+//    else {
+//      beaconLight1.flash(30, 500, 0, 0); // Simulate rotating beacon lights with short flashes
+//      beaconLight2.flash(30, 500, 0, 0, 100); // Simulate rotating beacon lights with short flashes
+//    }
+//  }
+//  else {
+//    beaconLight2.off();
+//    beaconLight1.off();
+//  }
+  if (train) trainLight.on(); else trainLight.off();
 #else // Beacons used for tank cannon fire simulation flash in TRACKED_MODE
-  if (cannonFlash) beaconLight1.on();
-  else beaconLight1.off();
+  if (cannonFlash) trainLight.on();
+  else trainLight.off();
 #endif
-
 
   // Indicators (turn signals, blinkers) ----
   uint8_t indicatorOffBrightness;
@@ -1686,49 +1696,51 @@ void led() {
   switch (lightsState) {
 
     case 0: // lights off ---------------------------------------------------------------------
-      cabLight.off();
-      sideLight.off();
       headLightsSub(false, false, false);
       brakeLightsSub(0); // 0 brightness, if not braking
       break;
 
-    case 1: // cab lights ---------------------------------------------------------------------
-      cabLight.pwm(255 - crankingDim);
-      sideLight.off();
-      headLightsSub(false, false, false);
-      brakeLightsSub(0); // 0 brightness, if not braking
+    case 1: // tail & side lights ---------------------------------------------------------------------
+      headLightsSub(true, false, false);
+      brakeLightsSub(rearlightDimmedBrightness); // 0 brightness, if not braking
       break;
 
-    case 2: // cab & roof & side lights ---------------------------------------------------------------------
-      cabLight.pwm(255 - crankingDim);
-      sideLight.pwm(200 - crankingDim);
-      headLightsSub(false, false, true);
-      fogLight.off();
-      brakeLightsSub(0); // 0 brightness, if not braking
+    case 2: // tail & side & head lights ---------------------------------------------------------------------
+      headLightsSub(true, true, false);
+      brakeLightsSub(rearlightDimmedBrightness); // 0 brightness, if not braking
       break;
 
-    case 3: // roof & side & head lights ---------------------------------------------------------------------
-      cabLight.off();
-      sideLight.pwm(200 - crankingDim);
-      headLightsSub(true, false, true);
-      brakeLightsSub(rearlightDimmedBrightness); // 50 brightness, if not braking
-      break;
-
-    case 4: // roof & side & head & fog lights ---------------------------------------------------------------------
-      cabLight.off();
-      sideLight.pwm(200 - crankingDim);
+    case 3: // tail & side & head lights ---------------------------------------------------------------------
       headLightsSub(true, true, true);
-      brakeLightsSub(rearlightDimmedBrightness); // 50 brightness, if not braking
-      break;
-
-    case 5: // cab & roof & side & head & fog lights ---------------------------------------------------------------------
-      cabLight.pwm(255 - crankingDim);
-      sideLight.pwm(200 - crankingDim);
-      headLightsSub(true, true, true);
-      brakeLightsSub(rearlightDimmedBrightness); // 50 brightness, if not braking
+      brakeLightsSub(rearlightDimmedBrightness); // 0 brightness, if not braking
       break;
 
   } // End of state machine
+  
+  // Lights2 state machine
+  switch (lightsState2) {
+
+    case 0: // lights off ---------------------------------------------------------------------
+      sideLight.off();
+      fogLight.off();
+      break;
+
+    case 1: // fog lights ---------------------------------------------------------------------
+      sideLight.off();
+      fogLight.pwm(200 - crankingDim);
+      break;
+
+    case 2: // tail & head lights ---------------------------------------------------------------------
+      sideLight.pwm(255 - crankingDim);
+      fogLight.off();
+      break;
+
+    case 3: // tail & head & hhead lights ---------------------------------------------------------------------
+      sideLight.pwm(255 - crankingDim);
+      fogLight.pwm(200 - crankingDim);
+      break;
+  } // End of state machine
+
 #endif // End of manual lights mode ************************
 }
 
@@ -2141,7 +2153,7 @@ void triggerHorn() {
   }
 
   // detect bluelight trigger ( impulse length < 1300us) ----------
-  if (pulseWidth[4] < 1300 && pulseWidth[4] > pulseMinLimit[4] || sirenLatch) {
+  if ((pulseWidth[4] < 1300 && pulseWidth[4] > pulseMinLimit[4]) || sirenLatch) {
     blueLightTrigger = true;
   }
   else {
@@ -2233,13 +2245,26 @@ void rcTrigger() {
 
   // CH5 (FUNCTION_R) ----------------------------------------------------------------------
   // Cycling light state machine, if dual rate @75% and long in position -----
-  static bool lightsStateLock;
-  if (functionR75u.toggleLong(pulseWidth[5], 1150) != lightsStateLock) {
-    if (lightsState >= 5) lightsState = 0;
+  static bool lightsStateUpLock;
+  if (functionR75u.toggle(pulseWidth[5], 1150) != lightsStateUpLock) {
+    if (lightsState >= 3) lightsState = 3;
     else lightsState ++;
-    lightsStateLock = !lightsStateLock;
+    lightsStateUpLock = !lightsStateUpLock;
   }
-
+  
+  static bool lightsStateDownLock;
+  if (functionR75d.toggle(pulseWidth[5], 1850) != lightsStateDownLock) {
+    if (lightsState <= 0) lightsState = 0;
+    else lightsState --;
+    lightsStateDownLock = !lightsStateDownLock;
+  }
+  
+  static bool lightsState2UpLock;
+  if (functionR75uLong.toggleLong(pulseWidth[5], 1150) != lightsState2UpLock) {
+    if (lightsState2 >= 4) lightsState2 = 0;
+    else lightsState2 ++;
+    lightsState2UpLock = !lightsState2UpLock;
+  }
   // Toggling high / low beam, if dual rate @100% and short in position
   static bool beamStateLock;
   if (functionR100u.toggleLong(pulseWidth[5], 1000) != beamStateLock) {
@@ -2278,11 +2303,18 @@ void rcTrigger() {
   //Hazards on / off, if dual rate @75% and long in position -----
 #ifndef AUTO_INDICATORS
   static bool hazardStateLock;
-  if (functionL75l.toggleLong(pulseWidth[6], 1150) != hazardStateLock) {
+  if (functionL75l.toggle(pulseWidth[6], 1150) != hazardStateLock) {
     hazard = ! hazard;
     hazardStateLock = ! hazardStateLock;
   }
 #endif
+
+  //Trainlight on / off, if dual rate @75% and long in position -----
+  static bool trainStateLock;
+  if (functionL75lLong.toggleLong(pulseWidth[6], 1150) != trainStateLock) {
+    train = ! train;
+    trainStateLock = ! trainStateLock;
+  }
 
   // Couple / uncouple 5th wheel, if dual rate @75% and long in position -----
   static bool fifthWheelStateLock;

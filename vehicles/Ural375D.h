@@ -135,6 +135,8 @@ const boolean INDICATOR_DIR = true; // adjust indicator direction with true or f
 
 // Choose the light options --------
 //#define XENON_LIGHTS // Headlights will show a xenon bulb ignition flash, if defined
+//#define DRL_LIGHTS // DRL lights by separate LEDs
+//#define SEPARATE_FULL_BEAM // separate full beam bulb, wired to "hheadLight" pin
 
 // Choose the blue light options -----------------------------------------------------------------------------------------
 const boolean doubleFlashBlueLight = true; // double flash blue lights if "true", "rotating" beacons if "false"

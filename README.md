@@ -389,6 +389,13 @@ const uint8_t shakerStop = 60; // Shaker power while engine stop (max. 255, abou
 
 ## Changelog (newest on top):
 
+### New in V 6.21:
+- Changed the program to fit my PCB.
+- Divided the light switches into two: one controls the main light, the second controls the fog lights and the overhead light.
+- Added a road train indicator switch (will work with trailer control functions later).
+- Added automatic Daytime Running Lights.
+- Little bug fixes.
+
 ### New in V 6.2:
 - GAZ 66 redefinition bug fixed
 - SMD version BOM error fixed
