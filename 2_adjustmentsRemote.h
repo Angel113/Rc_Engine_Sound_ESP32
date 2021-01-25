@@ -1,7 +1,7 @@
 
 // Select the remote configuration you have:
-//#define FLYSKY_FS_I6X // <------- Select (remove //) one of the remote configurations below
-#define MICRO_RC
+#define FLYSKY_FS_I6X // <------- Select (remove //) one of the remote configurations below
+//#define MICRO_RC
 
 
 // BOARD SETTINGS ********************************************************************************************************************
@@ -15,11 +15,11 @@
 // PWM mode active, if SBUS, IBUS, SERIAL and PPM are disabled (// in front of #define)
 
 // SBUS communication (SBUS header, 13 channels. This my preferred communication protocol)--------
-#define SBUS_COMMUNICATION // control signals are coming in via the SBUS interface (comment it out for classic PWM RC signals)
+//#define SBUS_COMMUNICATION // control signals are coming in via the SBUS interface (comment it out for classic PWM RC signals)
 boolean sbusInverted = false; // true = wired to non standard (inverted) SBUS signal (for example from "Micro RC" receiver)
 
 // IBUS communication (RX header, 13 channels not recommended, NO FAILSAFE, if bad contact in iBUS wiring!) --------
-//#define IBUS_COMMUNICATION // control signals are coming in via the IBUS interface (comment it out for classic PWM RC signals)
+#define IBUS_COMMUNICATION // control signals are coming in via the IBUS interface (comment it out for classic PWM RC signals)
 
 // PPM communication (RX header, 8 channels, working fine, but channel signals are a bit jittery) --------
 //#define PPM_COMMUNICATION // control signals are coming in via the PPM interface (comment it out for classic PWM RC signals)

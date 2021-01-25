@@ -46,13 +46,15 @@ Fully assembled, tested and working 30 pin version
 - Channels can easily be assigned, using "remoteSetup.h"
 - Pre made configuration profiles for Flysky FS-i6X and Arduino Mirco RC remote (new in v.5.5)
 - Variable length for horn & siren, using loop area in sound files (new in v5.6)
+- BUS decoder for steering servo and shifting servo (connect servos to CH1 & CH2) pins
+- Trailer control, command transmission via UART.
 
 ## On the todo list:
-- Add PWM outputs in bus mode
+- Add wireless trailer control.
 
 ## Issues:
 - Arduino IDE 1.8.7 or older is not supported and will cause compiler errors!
-- This software was written and tested on macOS but should work just fine on Windows and Linux as well. If not, let me know!
+- This software was written and tested on Windows but should work just fine on macOS and Linux as well. If not, let me know!
 
 ## How to create new .h sound files:
 
@@ -105,7 +107,6 @@ Fully assembled, tested and working 30 pin version
 
 ### Recommended manufacturor:
 https://www.pcbway.com (including SMD assembling service, use Gerbers.zip for board, it also includes BOM. xlsx and CPL.xlsx, if you want to use the SMT assembling service)
-How to order pre assembled boards see /Eagle_PCB/How To Order Your PCB.pdf
 
 ### Assembling tutorial (for the 36 pin version):
 https://www.youtube.com/watch?v=Vfaz3CzecG4&list=PLGO5EJJClJBCjIvu8frS7LrEU3H2Yz_so&index=13
@@ -388,6 +389,21 @@ const uint8_t shakerStop = 60; // Shaker power while engine stop (max. 255, abou
 ### More to come...
 
 ## Changelog (newest on top):
+
+### New in V 6.4:
+- CH1 & CH2 input pins can be used as PWM output for the steering servo and for the shifting servo. The outputs are active, if a BUS communication mode (SBUS, IBUS or PPM) is selected. This allows to use vers small "BUS-only" receivers. In this case, the servos are connected to the sound controller instead.
+- Additional Servo adjustments parameters in tab "7-adjustmentsServo.h" added:
+- "SERVO_FREQUENCY" 50Hz is standard, some servos run smoother @ 100Hz.
+- Servo limits: left, center, right (allows to adjust both end points as well as the center point separately
+
+### New in V 6.3:
+- Additional ESC adjustments parameters in tab "3-adjustmentsESC.h" added. Allows to optimise the HOBBYWING 1060 ESC, even if it has no internal adjustments parameters:
+- "escTakeoffPunch" adds more power, if accelerating from zero. Used, if your "clutch" is slipping too much while taking off.
+- "escReversePlus" allows to make the reverse speed faster (only, if "escPulseSpan" is more than 500)
+- Additional "6_adjustmentsLights.h" tab:
+-  "NO_FOGLIGHTS" will skip the foglights step in the light control sequence, if defined. Use it, if your vehicle does not have fog lights
+-  "sideLightsBrightness" allows to adjust the brightness" of your parking lights / side markers
+- New vehicle configurations like Diesel and petrol Landcruisers, generic 6 Cylinder Diesel (optimised for smaller speakers)
 
 ### New in V 6.21:
 - Changed the program to fit my PCB.

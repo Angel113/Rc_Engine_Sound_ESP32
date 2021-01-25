@@ -1,6 +1,9 @@
 // VEHICLE SETTINGS ****************************************************************************************************
 // Select the vehicle preset you want (uncomment the one you want, remove //, never more than one)
 
+#define TRAILER_SERIAL_COMMUNICATION // Trailer command activated. Using Serial2 TX pin.
+static uint32_t fifthWheelLock = 1150; // 5th Wheel Lock position (1000 - 2000)
+static uint32_t fifthWheelUnlock = 1850; // 5th Wheel Unlock position (1000 - 2000)
 // Master --------
 //#include "vehicles/00_Master.h" // This master preset file contains all available sound files, which are not used in existing vehicle presets
 
@@ -18,7 +21,7 @@
 //#include "vehicles/Tatra813.h" // Tatra 813 8x8 V12 Diesel military truck (old version for comparison, don't use it)
 //#include "vehicles/Tatra813new.h" // Tatra 813 8x8 V12 Diesel military truck
 //#include "vehicles/UmimogU1000.h" // Umimog U 1000 with turbocharged R6 Diesel incl. Feuerwehr "Martinshorn" siren
-//#include "vehicles/MercedesActros1836.h" // Mercedes Actros 1863 or 3363 truck with R6 Diesel
+#include "vehicles/MercedesActros1836.h" // Mercedes Actros 1863 or 3363 truck with R6 Diesel
 //#include "vehicles/ScaniaV8_50ton.h" // SCANIA V8 50 ton truck. Unknown model. Lots of bass, but a bit noisy
 //#include "vehicles/ScaniaV8.h" // SCANIA V8 truck, unknown model
 //#include "vehicles/1000HpScaniaV8.h" // 1000 HP SCANIA V8 truck with open pipes. Insane sound! Good bass speakers reqired
@@ -29,7 +32,7 @@
 
 // Russian trucks --------
 //#include "vehicles/Ural4320.h" // URAL 4320 6x6 V8 Diesel military truck
-#include "vehicles/Ural375D.h" // URAL 375D 6x6 V8 petrol military truck
+//#include "vehicles/Ural375D.h" // URAL 375D 6x6 V8 petrol military truck
 //#include "vehicles/Урал375.h" // URAL 375D 6x6 V8 petrol military truck (new version with better V8 sound, but good bass speaker required)
 //#include "vehicles/GAZ66.h" // GAZ-66 V8 petrol military truck
 
@@ -62,6 +65,11 @@
 //#include "vehicles/DefenderV8Automatic.h" // Land Rover Defender 90 V8 automatic (very nice V8 with lots of bass)
 //#include "vehicles/DefenderV8CrawlerAutomatic.h" // Land Rover Defender 90 V8 automatic crawler
 //#include "vehicles/DefenderTd5.h" // Land Rover Defender 90 Td5 R5 Diesel
+
+// Asian SUV --------
+//#include "vehicles/LandcruiserFJ40.h" // Landcruiser Fj40 with inline 6 petrol engine
+//#include "vehicles/LandcruiserFJ40Diesel.h" // Landcruiser Fj40 with inline 6 12H Turbo Diesel engine
+//#include "vehicles/LandcruiserFJ40Diesel2.h" // Landcruiser Fj40 with inline 6 12H Turbo Diesel engine
 
 // US locomotives --------
 //#include "vehicles/UnionPacific2002.h" // Union Pacific 2002 SD70M locomotive with enormous, low revving 16 cylinder Diesel

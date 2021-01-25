@@ -9,7 +9,7 @@
    Parts of automatic transmision code from Wombii's fork: https://github.com/Wombii/Rc_Engine_Sound_ESP32
 */
 
-const float codeVersion = 6.21; // Software revision.
+const float codeVersion = 6.41; // Software revision.
 
 //
 // =======================================================================================================
@@ -23,9 +23,11 @@ const float codeVersion = 6.21; // Software revision.
 #include "3_adjustmentsESC.h"           // <<------- ESC related adjustments
 #include "4_adjustmentsTransmission.h"  // <<------- Transmission related adjustments
 #include "5_adjustmentsShaker.h"        // <<------- Shaker related adjustments
+#include "6_adjustmentsLights.h"        // <<------- Lights related adjustments
+#include "7_adjustmentsServos.h"        // <<------- Servo output related adjustments
 
 // Install ESP32 board according to: https://randomnerdtutorials.com/installing-the-esp32-board-in-arduino-ide-windows-instructions/
-// Adjust board settings according to: https://github.com/TheDIYGuy999/Rc_Engine_Sound_ESP32/blob/master/Board%20settings.png
+// Adjust board settings according to: https://github.com/TheDIYGuy999/Rc_Engine_Sound_ESP32/blob/master/pictures/settings.png
 
 // Make sure to remove -master from your sketch folder name
 
@@ -35,6 +37,7 @@ const float codeVersion = 6.21; // Software revision.
 //#define AUTO_TRANS_DEBUG // uncomment it to debug the automatic transmission
 //#define MANUAL_TRANS_DEBUG // uncomment it to debug the manual transmission
 //#define TRACKED_DEBUG // debugging tracked vehicle mode
+#define TRAILER_DEBUG // uncomment it to debug the trailer UART command interface
 
 // TODO = Things to clean up!
 
@@ -54,6 +57,7 @@ const float codeVersion = 6.21; // Software revision.
 #include <IBusBM.h> // https://github.com/bmellink/IBusBM required for IBUS interface
 
 #include "driver/rmt.h" // No need to install this, comes with ESP32 board definition (used for PWM signal detection)
+#include "driver/mcpwm.h" // for servo PWM output
 
 //
 // =======================================================================================================
@@ -69,7 +73,7 @@ const float codeVersion = 6.21; // Software revision.
 
 // Serial command pins for SBUS & IBUS -----
 #define COMMAND_RX 36 // pin 36, labelled with "VP", connect it to "Micro RC Receiver" pin "TXO"
-#define COMMAND_TX 39 // pin 39, labelled with "VN", only used as a dummy, not connected
+#define COMMAND_TX 27 // pin 39, labelled with "VN", only used as a dummy, not connected
 
 // PPM signal pin (multiple channel input with only one wire) -----
 #define PPM_PIN 36
@@ -87,6 +91,11 @@ const uint8_t PWM_CHANNELS[PWM_CHANNELS_NUM] = { 1, 2, 3, 4, 5, 6}; // Channel n
 const uint8_t PWM_PINS[PWM_CHANNELS_NUM] = { 13, 12, 14, 27, 35, 34 }; // Input pin numbers
 
 #define ESC_OUT_PIN 33 // connect crawler type ESC here (working fine, but use it at your own risk! Not supported in TRACKED_MODE) -----
+
+#define STEERING_PIN 13 // output for steering servo (bus communication only)
+#define SHIFTING_PIN 12 // output for shifting servo (bus communication only)
+
+#define FIFTH_WHEEL_SERVO_PIN 32 // Output for fifth wheel servo  pin.
 
 #ifdef PROTOTYPE_36 // switching headlight pin depending on the board variant (do not uncomment it, or it will cause boot issues!)
 #define HEADLIGHT_PIN 0 // White headllights connected to pin D0, which only exists on the 36 pin ESP32 board (causes boot issues, if used!)
@@ -109,6 +118,7 @@ const uint8_t PWM_PINS[PWM_CHANNELS_NUM] = { 13, 12, 14, 27, 35, 34 }; // Input 
 #define BRAKELIGHT_PIN 22 // Upper brake lights
 
 #define SHAKER_MOTOR_PIN 15 // Shaker motor (shaking truck while idling and engine start / stop)
+#define FIFTH_WHEEL_SERVO_PIN 32 // Upper brake lights
 
 #define DAC1 25 // connect pin25 (do not change the pin) to a 10kOhm resistor
 #define DAC2 26 // connect pin26 (do not change the pin) to a 10kOhm resistor
@@ -132,6 +142,7 @@ statusLED trainLight(false);
 statusLED brakeLight(false);
 statusLED shakerMotor(false);
 statusLED escOut(false);
+statusLED fifthWheelServo(false);
 
 // rcTrigger objects -----
 // Analog or 3 position switches (short / long pressed time)
@@ -292,6 +303,8 @@ volatile boolean escInReverse = false;                   // ESC is driving or br
 int8_t driveState = 0;                                   // for ESC state machine
 int16_t escPulseMax;                                     // ESC calibration variables
 int16_t escPulseMin;
+int16_t escPulseMaxNeutral;
+int16_t escPulseMinNeutral;
 uint16_t currentSpeed = 0;                               // 0 - 500 (current ESC power)
 
 // Lights
@@ -304,6 +317,16 @@ volatile boolean blueLightTrigger = false;               // Bluelight on 8Blauli
 boolean indicatorLon = false;                            // Left indicator (Blinker links)
 boolean indicatorRon = false;                            // Right indicator 8Blinker rechts)
 boolean cannonFlash = false;                             // Flashing cannon fire
+
+// Trailer signal processing variables
+bool trailerInit;
+boolean tTail;
+boolean tStop;
+boolean tBack;
+boolean tLeft;
+boolean tRight;
+int16_t tPWM1 = 1500;
+int16_t tPWM2 = 1500;
 
 // Our main tasks
 TaskHandle_t Task1;
@@ -831,6 +854,30 @@ void IRAM_ATTR readPpm() {
 
 //
 // =======================================================================================================
+// mcpwm SETUP (1x during startup)
+// =======================================================================================================
+//
+// See: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/mcpwm.html#configure
+
+void setupMcpwm() {
+  // 1. set our servo output pins
+  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, STEERING_PIN);    //Set steering as PWM0A
+  mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0B, SHIFTING_PIN);    //Set shifting as PWM0B
+
+  // 2. configure MCPWM parameters
+  mcpwm_config_t pwm_config;
+  pwm_config.frequency = SERVO_FREQUENCY;     //frequency usually = 50Hz, some servos may run smoother @ 100Hz
+  pwm_config.cmpr_a = 0;                      //duty cycle of PWMxA = 0
+  pwm_config.cmpr_b = 0;                      //duty cycle of PWMxb = 0
+  pwm_config.counter_mode = MCPWM_UP_COUNTER;
+  pwm_config.duty_mode = MCPWM_DUTY_MODE_0;   // 0 = not inverted, 1 = inverted
+
+  // 3. configure channels with settings above
+  mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_0, &pwm_config);    //Configure PWM0A & PWM0B with above settings
+}
+
+//
+// =======================================================================================================
 // MAIN ARDUINO SETUP (1x during startup)
 // =======================================================================================================
 //
@@ -857,7 +904,7 @@ void setup() {
   indicatorR.begin(INDICATOR_RIGHT_PIN, 4, 20000); // Timer 4, 20kHz
   fogLight.begin(FOGLIGHT_PIN, 5, 20000); // Timer 5, 20kHz
   reversingLight.begin(REVERSING_LIGHT_PIN, 6, 20000); // Timer 6, 20kHz
-  roofLight.begin(ROOFLIGHT_PIN, 7, 20000); // Timer 7, 20kHz00Hz
+  roofLight.begin(ROOFLIGHT_PIN, 7, 20000); // Timer 7, 20kHz
   sideLight.begin(SIDELIGHT_PIN, 8, 20000); // Timer 8, 20kHz
 
   drlLight.begin(DRLLIGHT_PIN, 9, 20000); // Timer 9, 20kHz
@@ -868,22 +915,31 @@ void setup() {
   shakerMotor.begin(SHAKER_MOTOR_PIN, 13, 20000); // Timer 13, 20kHz
 
   escOut.begin(ESC_OUT_PIN, 15, 50, 16); // Timer 15, 50Hz, 16bit <-- ESC running @ 50Hz
+  fifthWheelServo.begin(FIFTH_WHEEL_SERVO_PIN, 14, 50, 16); // Timer 14, 50Hz, 16bit <-- Servo running @ 50Hz
 
   // Serial setup
   Serial.begin(115200); // USB serial (for DEBUG)
 
   // Communication setup --------------------------------------------
+#ifdef TRAILER_SERIAL_COMMUNICATION && !IBUS_COMMUNICATION && !SBUS_COMMUNICATION
+  Serial2.begin(115200, SERIAL_8N1, COMMAND_RX, COMMAND_TX); // begin Serial communication with "Micro RC" receiver
+  trailerInit = true;
+#endif
+
 #if defined SBUS_COMMUNICATION // SBUS ----
   if (MAX_RPM_PERCENTAGE > maxSbusRpmPercentage) MAX_RPM_PERCENTAGE = maxSbusRpmPercentage; // Limit RPM range
   sBus.begin(COMMAND_RX, COMMAND_TX, sbusInverted); // begin SBUS communication with compatible receivers
+  setupMcpwm(); // mcpwm servo output setup
 
 #elif defined IBUS_COMMUNICATION // IBUS ----
   if (MAX_RPM_PERCENTAGE > maxIbusRpmPercentage) MAX_RPM_PERCENTAGE = maxIbusRpmPercentage; // Limit RPM range
-  iBus.begin(Serial2, IBUSBM_NOTIMER, COMMAND_RX, COMMAND_TX); // begin IBUS communication with compatible receivers TODO
+  iBus.begin(Serial2, IBUSBM_NOTIMER, COMMAND_RX, COMMAND_TX); // begin IBUS communication with compatible receivers
+  setupMcpwm(); // mcpwm servo output setup
 
 #elif defined PPM_COMMUNICATION // PPM ----
   if (MAX_RPM_PERCENTAGE > maxPpmRpmPercentage) MAX_RPM_PERCENTAGE = maxPpmRpmPercentage; // Limit RPM range
   attachInterrupt(digitalPinToInterrupt(PPM_PIN), readPpm, RISING); // begin PPM communication with compatible receivers
+  setupMcpwm(); // mcpwm servo output setup
 
 #else
   // PWM ----
@@ -979,9 +1035,12 @@ void setup() {
     pulseMinLimit[i] = pulseZero[i] - pulseLimit;
   }
 
-  // ESC output signal range
+  // ESC output calibration
+  escPulseMaxNeutral = pulseZero[3] + escTakeoffPunch; //Additional takeoff punch around zero
+  escPulseMinNeutral = pulseZero[3] - escTakeoffPunch;
+
   escPulseMax = pulseZero[3] + escPulseSpan;
-  escPulseMin = pulseZero[3] - escPulseSpan;
+  escPulseMin = pulseZero[3] - escPulseSpan + escReversePlus; //Additional power for ESC with slow reverse
 }
 
 //
@@ -1236,6 +1295,37 @@ void failsafeRcSignals() {
 
 //
 // =======================================================================================================
+// MCPWM SERVO RC SIGNAL OUTPUT (bus communication mode only)
+// =======================================================================================================
+//
+// See: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/peripherals/mcpwm.html#configure
+
+void mcpwmOutput() {
+
+  // Steering
+  uint16_t steeringServoMicros;
+  if (pulseWidth[1] < 1500) steeringServoMicros = map(pulseWidth[1], 1000, 1500, CH1L, CH1C);
+  else if (pulseWidth[1] > 1500) steeringServoMicros = map(pulseWidth[1], 1500, 2000, CH1C, CH1R);
+  else steeringServoMicros = CH1C;
+  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, steeringServoMicros);
+
+  // Shifting
+  static uint16_t shiftingServoMicros;
+#if not defined MODE1_SHIFTING
+  if (selectedGear == 1) shiftingServoMicros = CH2L;
+  if (selectedGear == 2) shiftingServoMicros = CH2C;
+  if (selectedGear == 3) shiftingServoMicros = CH2R;
+#else
+  if (currentSpeed > 100 && currentSpeed < 150) { // Only shift WPL gearbox, if vehicle is moving slowly, so it's engaging properly
+    if (!mode1) shiftingServoMicros = CH2L;
+    else shiftingServoMicros = CH2C;
+  }
+#endif
+  mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_B, shiftingServoMicros);
+}
+
+//
+// =======================================================================================================
 // MAP PULSEWIDTH TO THROTTLE CH3
 // =======================================================================================================
 //
@@ -1468,7 +1558,7 @@ void engineMassSimulation() {
   }
 
   // Prevent Wastegate from being triggered while downshifting
-  if(gearDownShiftingInProgress) wastegateMillis = millis();
+  if (gearDownShiftingInProgress) wastegateMillis = millis();
 
   // Trigger Wastegate, if throttle rapidly dropped
   if (lastThrottle - currentThrottle > 70 && !escIsBraking && millis() - wastegateMillis > 1000) {
@@ -1628,7 +1718,11 @@ void led() {
 
   if (!hazard) {
     if (indicatorLon) {
-      if (indicatorL.flash(375, 375, 0, 0, 0, indicatorFade, indicatorOffBrightness)) indicatorSoundOn = true; // Left indicator
+      if (indicatorL.flash(375, 375, 0, 0, 0, indicatorFade, indicatorOffBrightness)){
+        indicatorSoundOn = true; // Left indicator
+        tLeft = true;
+      }
+      else tLeft = false;
     }
 #if defined INDICATOR_SIDE_MARKERS // Indicators used as US style side markers as well
     else {
@@ -1636,11 +1730,18 @@ void led() {
       else indicatorL.off(indicatorFade);
     }
 #else
-    else indicatorL.off(indicatorFade);
+    else{
+      indicatorL.off(indicatorFade);
+      tLeft = false;
+    }
 #endif
 
     if (indicatorRon) {
-      if (indicatorR.flash(375, 375, 0, 0, 0, indicatorFade, indicatorOffBrightness)) indicatorSoundOn = true; // Left indicator
+      if (indicatorR.flash(375, 375, 0, 0, 0, indicatorFade, indicatorOffBrightness)){
+        indicatorSoundOn = true; // Left indicator
+        tRight = true;
+      }
+      else tRight = false;
     }
 #if defined INDICATOR_SIDE_MARKERS // Indicators used as US style side markers as well
     else {
@@ -1648,11 +1749,22 @@ void led() {
       else indicatorR.off(indicatorFade);
     }
 #else
-    else indicatorR.off(indicatorFade);
+    else{
+      indicatorR.off(indicatorFade);
+      tRight = false;
+    }
 #endif
   }
   else { // Hazard lights on, if no connection to transmitter (serial & SBUS control mode only)
-    if (indicatorL.flash(375, 375, 0, 0, 0, indicatorFade)) indicatorSoundOn = true;
+    if (indicatorL.flash(375, 375, 0, 0, 0, indicatorFade)){
+      indicatorSoundOn = true;
+      tLeft = true;
+      tRight = true;
+    }
+    else {
+      tLeft = false;
+      tRight = false;
+    }
     indicatorR.flash(375, 375, 0, 0, 0, indicatorFade);
   }
 
@@ -1676,7 +1788,7 @@ void led() {
   }
 
   // Foglights ----
-  if (lightsOn && engineRunning) fogLight.pwm(200 - crankingDim);
+  if (lightsOn && engineRunning) fogLight.pwm(sideLightsBrightness - crankingDim);
   else fogLight.off();
 
   // Roof lights ----
@@ -1684,7 +1796,7 @@ void led() {
   else roofLight.off();
 
   // Sidelights ----
-  if (engineOn) sideLight.pwm(200 - crankingDim);
+  if (engineOn) sideLight.pwm(sideLightsBrightness - crankingDim);
   else sideLight.off();
 
   // Cabin lights ----
@@ -1727,7 +1839,7 @@ void led() {
 
     case 1: // fog lights ---------------------------------------------------------------------
       sideLight.off();
-      fogLight.pwm(200 - crankingDim);
+      fogLight.pwm(sideLightsBrightness - crankingDim);
       break;
 
     case 2: // tail & head lights ---------------------------------------------------------------------
@@ -1737,7 +1849,7 @@ void led() {
 
     case 3: // tail & head & hhead lights ---------------------------------------------------------------------
       sideLight.pwm(255 - crankingDim);
-      fogLight.pwm(200 - crankingDim);
+      fogLight.pwm(sideLightsBrightness - crankingDim);
       break;
   } // End of state machine
 
@@ -1998,8 +2110,12 @@ void esc() {
         escIsBraking = false;
         escInReverse = false;
         escIsDriving = true;
-        if (escPulseWidth < pulseWidth[3] && currentSpeed < speedLimit) escPulseWidth += (driveRampRate * driveRampGain);
-        if (escPulseWidth > pulseWidth[3] && escPulseWidth > pulseZero[3]) escPulseWidth -= (driveRampRate * driveRampGain);
+        if (escPulseWidth < pulseWidth[3] && currentSpeed < speedLimit) {
+          if (escPulseWidth >= escPulseMaxNeutral) escPulseWidth += (driveRampRate * driveRampGain); //Faster
+          else escPulseWidth = escPulseMaxNeutral; // Initial boost
+        }
+        //if (escPulseWidth < pulseWidth[3] && currentSpeed < speedLimit) escPulseWidth += (driveRampRate * driveRampGain); // Faster
+        if (escPulseWidth > pulseWidth[3] && escPulseWidth > pulseZero[3]) escPulseWidth -= (driveRampRate * driveRampGain); // Slower
 
         if (gearUpShiftingPulse && shiftingAutoThrottle) { // lowering RPM, if shifting up transmission
 #if not defined VIRTUAL_3_SPEED && not defined VIRTUAL_16_SPEED_SEQUENTIAL // Only, if we have a real 3 speed trasnsmission        
@@ -2040,8 +2156,12 @@ void esc() {
         escIsBraking = false;
         escInReverse = true;
         escIsDriving = true;
-        if (escPulseWidth > pulseWidth[3] && currentSpeed < speedLimit) escPulseWidth -= (driveRampRate * driveRampGain);
-        if (escPulseWidth < pulseWidth[3] && escPulseWidth < pulseZero[3]) escPulseWidth += (driveRampRate * driveRampGain);
+        if (escPulseWidth > pulseWidth[3] && currentSpeed < speedLimit) {
+          if (escPulseWidth <= escPulseMinNeutral) escPulseWidth -= (driveRampRate * driveRampGain); //Faster
+          else escPulseWidth = escPulseMinNeutral; // Initial boost
+        }
+        //if (escPulseWidth > pulseWidth[3] && currentSpeed < speedLimit) escPulseWidth -= (driveRampRate * driveRampGain); // Faster
+        if (escPulseWidth < pulseWidth[3] && escPulseWidth < pulseZero[3]) escPulseWidth += (driveRampRate * driveRampGain); // Slower
 
         if (gearUpShiftingPulse && shiftingAutoThrottle) { // lowering RPM, if shifting up transmission
 #if not defined VIRTUAL_3_SPEED && not defined VIRTUAL_16_SPEED_SEQUENTIAL // Only, if we have a real 3 speed trasnsmission        
@@ -2242,6 +2362,16 @@ void rcTrigger() {
   // Channel assignment see "remoteSetup.xlsx"
 
   // Potentiometers or 3 position switches ******************************************************************
+#if defined TRAILER_SERIAL_COMMUNICATION
+  if (mode1) {
+    tPWM1 = pulseWidth[5];
+    tPWM2 = pulseWidth[6];
+  }
+  else {
+    tPWM1 = 1500;
+    tPWM2 = 1500;
+    
+#endif
 
   // CH5 (FUNCTION_R) ----------------------------------------------------------------------
   // Cycling light state machine, if dual rate @75% and long in position -----
@@ -2324,11 +2454,16 @@ void rcTrigger() {
       fifthWheelStateLock = !fifthWheelStateLock;
     }
   }
-  // if (unlock5thWheel) Serial.println("5th wheel unlocked!"); // TODO, program action!
+  if (unlock5thWheel) fifthWheelServo.pwm(map(fifthWheelUnlock, 1000, 2000, 3278, 6553));
+  else fifthWheelServo.pwm(map(fifthWheelLock, 1000, 2000, 3278, 6553)); // TODO, program action!
+
+#if defined TRAILER_SERIAL_COMMUNICATION
+  }  
+#endif
 
   // Latching 2 position switches ******************************************************************
-#ifdef TRANSMISSION_NEUTRAL
   mode1 = mode1Trigger.onOff(pulseWidth[8], 1800, 1200); // CH8 (MODE1)
+#ifdef TRANSMISSION_NEUTRAL
   neutralGear = mode1; // Transmission neutral
 #endif
   mode2 = mode2Trigger.onOff(pulseWidth[9], 1800, 1200); // CH9 (MODE2)
@@ -2353,6 +2488,74 @@ void rcTrigger() {
 #else
   hazard = hazardsTrigger.onOff(pulseWidth[11], 1800, 1200); // CH11 HAZARDS
 #endif
+
+}
+
+//
+// =======================================================================================================
+// WRITE TRAILER SIGNALS 
+// =======================================================================================================
+//
+
+void writeTrailerSignals() {
+
+  static unsigned long lastSerialTime;
+
+  // '\n' is used as delimiter (separator of variables) during parsing on the sound controller
+  // it is generated by the "println" (print line) command!
+  // See: https://github.com/TheDIYGuy999/Rc_Engine_Sound_ESP32
+
+//  if (trailerInit) { // only, if we are in serial command mode
+    if (millis() - lastSerialTime > 20) { // Send the data every 20ms
+      lastSerialTime = millis();
+      if (train) {
+        tTail = (lightsState > 0);
+        tStop = escIsBraking;
+        tBack = (engineRunning && escInReverse);
+      }
+      else {
+        tTail = false;
+        tStop = false;
+        tBack = false;
+      }
+      Serial2.print('<'); // Start marker
+      Serial2.println(tTail);
+      Serial2.println(tStop);
+      Serial2.println(tBack);
+      Serial2.println(tLeft);
+      Serial2.println(tRight);
+      Serial2.println(tPWM1);
+//      Serial2.println(tPWM2);
+      Serial2.print('>'); // End marker
+    }
+  // Print debug infos
+  static unsigned long printTrailerMillis;
+#ifdef TRAILER_DEBUG // can slow down the playback loop!
+  if (millis() - printTrailerMillis > 1000) { // Every 1000ms
+    printTrailerMillis = millis();
+
+    Serial.print("TRAILER DEBUG:");
+    Serial.print(" tTail: ");
+    Serial.print(tTail);
+    Serial.print(" tStop: ");
+    Serial.print(tStop);
+    Serial.print(" tBack: ");
+    Serial.print(tBack);
+    Serial.print(" tLeft: ");
+    Serial.print(tLeft);
+    Serial.print(" tRight: ");
+    Serial.print(tRight);
+    Serial.print(" tPWM1: ");
+    Serial.print(tPWM1);
+    Serial.print(" tPWM2: ");
+    Serial.println(tPWM2);
+
+//    Serial.print("failSafe: ");
+//    Serial.println(failSafe);
+  }
+#endif
+
+//  }
 }
 
 //
@@ -2365,10 +2568,13 @@ void loop() {
 
 #if defined SBUS_COMMUNICATION
   readSbusCommands(); // SBUS communication (pin 36)
+  mcpwmOutput(); // PWM servo signal output
 #elif defined IBUS_COMMUNICATION
   readIbusCommands(); // IBUS communication (pin 36)
+  mcpwmOutput(); // PWM servo signal output
 #elif defined PPM_COMMUNICATION
   readPpmCommands(); // PPM communication (pin 34)
+  mcpwmOutput(); // PWM servo signal output
 #else
   // measure RC signals mark space ratio
   readPwmSignals();
@@ -2385,6 +2591,10 @@ void loop() {
 
   // rcTrigger (experimental)
   rcTrigger();
+
+#if defined TRAILER_SERIAL_COMMUNICATION
+  writeTrailerSignals(); // Trailer communication (pin 32)
+#endif
 }
 
 //
